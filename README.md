@@ -40,6 +40,9 @@ Search Options:
   -m MAX_RESULTS        Max results per file type, per search engine (Default: 50)
   -j JITTER             Seconds between search requests (Default: 2)
 
+Download Options:
+  --stealth             Use the wayback mahcine as a proxy for file downloads
+
 Output Options:
   -o OUTPUT_DIR         Path to store PyMeta's download folder (Default: ./)
   -f FILENAME           Custom report path/name.csv (Optional)

@@ -4,6 +4,7 @@ import re
 import os
 import argparse
 import requests
+import json
 from sys import exit
 from time import sleep
 from random import choice
@@ -14,7 +15,7 @@ from urllib3 import disable_warnings, exceptions
 disable_warnings(exceptions.InsecureRequestWarning)
 
 class PyMeta():
-    def __init__(self, jitter, debug=False):
+    def __init__(self, jitter, debug=False, stealth=False):
         self.__real_path   = os.path.join(os.path.dirname(os.path.realpath(__file__)))
         self.__exiftool    = '{}/resources/exiftool'.format(self.__real_path)
         self.__user_agents = [line.strip() for line in open('{}/resources/user_agents.txt'.format(self.__real_path))]
@@ -24,6 +25,7 @@ class PyMeta():
         self.file_types = ['pdf', 'xls', 'xlsx', 'csv', 'doc', 'docx', 'ppt', 'pptx']
         self.running    = True
         self.debug      = debug
+        self.stealth    = stealth
         self.links      = []
         self.detection  = 0
         self.jitter     = jitter
@@ -90,11 +92,43 @@ class PyMeta():
                 exit(0)
         return False
 
+    def check_link(self, link, loop=False):
+        # check wayback machine if file already cached
+        check = "https://web.archive.org/web/{}"
+        resp = requests.get(check.format(link), headers={'User-Agent': choice(self.__user_agents)}, verify=False, timeout=6)
+        # parse page to check if not archived
+        if "The Wayback Machine has not archived that URL." not in resp.text:
+            if self.debug:
+                print("[*] URL archived. Downloading from Wayback Machine: {}".format(resp.url))
+            return resp.url
+        elif (loop == False):
+            # if not, save it
+            save = "https://web.archive.org/save/{}"
+            resp = requests.get(save.format(link), headers={'User-Agent': choice(self.__user_agents)}, verify=False, timeout=6)
+            if self.debug:
+                print("[*] Submitting to Wayback Machine for saving: {}".format(resp.url))
+            return None
+        else:
+            return None
+
+    def process_link(self, link):
+        if not self.stealth:
+            return link
+        check = self.check_link(link, False)
+        if (check != None):
+            return check
+        else:
+            while(self.check_link(link, True) == None):
+                if self.debug: 
+                    print("[!] Sleeping for 5 seconds while file is being saved...")
+                time.sleep(5)
+            return self.check_link(link, True)
+
     def download_files(self, links, write_dir):
         for link in links:
             try:
                 requests.packages.urllib3.disable_warnings()
-                response = requests.get(link, headers={'User-Agent': choice(self.__user_agents)}, verify=False, timeout=6)
+                response = requests.get(self.process_link(link), headers={'User-Agent': choice(self.__user_agents)}, verify=False, timeout=6)
                 with open(write_dir + link.split("/")[-1], 'wb') as f:
                     f.write(response.content)
             except KeyboardInterrupt:
@@ -226,7 +260,7 @@ def dir_handler(pymeta, input_dir, report_file):
 # Main
 ######################################
 def launcher(args):
-    pymeta = PyMeta(args.jitter, args.debug)
+    pymeta = PyMeta(args.jitter, args.debug, args.stealth)
 
     if args.domain:
         domain_handler(pymeta, args.output_dir, args.filename, args.search, args.max_results, args.domain)
@@ -236,7 +270,7 @@ def launcher(args):
 
 def main():
     try:
-        version = '1.0.4'
+        version = '1.0.5'
         args = argparse.ArgumentParser(description="""
             PyMeta v.{}
    -----------------------------------
@@ -257,6 +291,9 @@ usage:
         search.add_argument('-s', dest='search', choices=['google','bing','all'], default='all', help='Search engine(s) to scrape')
         search.add_argument('-m', dest='max_results', type=int, default=50, help='Max results per file type, per search engine (Default: 50)')
         search.add_argument('-j', dest='jitter', type=int, default=2, help='Seconds between search requests (Default: 2)')
+
+        download = args.add_argument_group("Download Options")
+        download.add_argument('--stealth', dest='stealth', action='store_true', help='Use the wayback mahcine as a proxy for file downloads')
 
         output = args.add_argument_group("Output Options")
         output.add_argument('-o', dest="output_dir", type=str, help="Path to store PyMeta's download folder (Default: ./)", default="./")
